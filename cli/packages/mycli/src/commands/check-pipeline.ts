@@ -1,22 +1,24 @@
-var debug = require("debug")("mycli:check-pipeline");
+// var debug = require("debug")("mycli:check-pipeline");
+import { flags } from '@oclif/command';
+import { cli } from 'cli-ux';
+import { Pipelines } from 'gitlab';
+import chalk from 'chalk';
 
-import { Pipelines } from 'gitlab'; // Just the Pipeline Resource
-import { flags } from "@oclif/command";
-const waitUntil = require('wait-until');
+import { parse }  from 'url';
+
+import Base from '../base';
+
 const { prompt } = require("enquirer");
 
-import { cli } from 'cli-ux'
-
-import Base from "../base";
-
-const RETRY_INTERVAL = 5000; // in milliseconds
+const RETRY_INTERVAL = 6000; // in milliseconds
+const RETRY_COUNT = 10;
 
 // modify with condition test
 // https://gitlab.com/snippets/1775781
 async function retry<T>(
   fn: () => Promise<T>,
   predicate: (arg: T) => boolean = (result: T) => (result as any) === true,
-  retriesLeft: number = 10,
+  retriesLeft: number = RETRY_COUNT,
   interval: number = RETRY_INTERVAL,
   exponential: boolean = false
 ): Promise<T> {
@@ -73,6 +75,17 @@ const isPipelineDone = (response: Pipeline) => {
   return response.status === 'success';
 }
 
+const apiVersionFromString = (apiVersion: string): 4 | 3 => {
+  switch (apiVersion) {
+    case '4':
+      return 4;
+    case '3':
+      return 3;
+    default:
+      return 4;
+  }
+}
+
 
 class CheckGitlabPipeline extends Base {
   static description = "Waits until a gitlab pipeline completes, then notifies you";
@@ -89,6 +102,7 @@ class CheckGitlabPipeline extends Base {
     }),
     // flag with no value (-f, --force)
     // force: flags.string({ char: "f" })
+    // https://www.npmjs.com/package/gitlab#getting-started
     token: flags.string({
       char: "g",
       env: "GITLAB_TOKEN",
@@ -97,71 +111,69 @@ class CheckGitlabPipeline extends Base {
     host: flags.string({
       char: "o",
       default: 'https://gitlab.ddbuild.io'
+    }),
+    apiVersion: flags.string({
+      char: "a",
+      default: '4',
+      options: ['3', '4']
+    }),
+    url: flags.string({
+      char: "u",
+      // required: true, // TODO: write this
+      default: 'https://gitlab.ddbuild.io/DataDog/web-ui/pipelines/1796026'
     })
-    // url
   };
+
+  static args = [{ name: "url" }];
 
   static strict = false;
   async run() {
-    const { flags } = this.parse(CheckGitlabPipeline);
+    const { flags, args } = this.parse(CheckGitlabPipeline);
 
-    const { token, host } = flags;
+    const { token, apiVersion } = flags;
+    const { url } = args;
+
+    // parse URL into host, projectId, pipelineId
+    const parsedUrl = parse(url);
+    const { host, protocol } = parsedUrl;
 
     const gitlabApiOptions = {
       token: token,
-      host: host
+      host: `${protocol}//${host}` || '',
+      version: apiVersionFromString(apiVersion)
     };
 
+    // TODO: this part depends on how the gitlab api version works, we assume v4.
+    const parsedPath = parsedUrl.pathname?.split('/pipelines/');
+
+     // // https://docs.gitlab.com/ee/api/README.html#namespaced-path-encoding
+    const projectId = parsedPath?.slice(0, 1)[0]|| 'Datadog/web-ui';
+    const pipelineId = parsedPath?.slice(1, 2)[0] || 1000;
+
     const api = new Pipelines(gitlabApiOptions);
-    const pipelineId = flags.pipelineId;
-    const projectId = 'DataDog/web-ui'; // PS: how to get this? generically.
 
     const checkApiStatusPromise = () => {
-      return api.show(projectId, pipelineId).then((response: any) => {
+      return api.show(projectId, +pipelineId).then((response: any) => {
         return (response as Pipeline);
       });
     }
 
 
-    cli.action.start(`Checking pipeline ${pipelineId}`, 'waiting');
+    // Actual meat-and-potatoes
+    this.log("Hi there! I'll let you know when this gitlab work is done");
+    cli.action.start(`Checking pipeline ${chalk.cyan(`${pipelineId}`)}`, `Thinking intently...`);
+
+    // https://github.com/sw-yx/egghead-cli-workshop/blob/master/guide/12-polish-CLI.md
     await retry(checkApiStatusPromise, isPipelineDone)
       .then((response: Pipeline) => {
-        cli.action.stop('Succeeded! Visit URL for more details') // shows 'starting a process... done'
+        cli.action.stop(chalk.green('Succeeded! Visit URL for more details')) // shows 'starting a process... done'
         // optionally open URL, we can prompt user to see what they like
         this.log(response.web_url)
       })
       .catch(()=> {
-        cli.action.stop('giving up') // shows 'starting a process... done'
+        cli.action.stop(chalk.red(`Retired after ${RETRY_COUNT * RETRY_INTERVAL / 1000} seconds. Try again later`));
       });
   }
 }
 
 export = CheckGitlabPipeline;
-
-//
-// Enter a loop until
-// Gitlab OpenAPI:
-// https://gitlab.com/gitlab-org/gitlab/blob/master/doc/api/pipelines.md
-// await waitUntil()
-//   .interval(500)
-//   .times(10)
-//   .condition(async (cb: any) => {
-//     this.log('trying');
-
-//   })
-//   .done((result: any) => {
-//     this.log("condition was met");
-//   });
-// this.log("condition was not met");
-
-
-// api.show(projectId, pipelineId).then((response) => {
-//   this.log(`${(response as any).status}`);
-//   return
-// })
-// .finally(() =>
-//   console.log("You can specify this with the --name flag in future")
-// );
-
-// TODO: add a timeout if it takes forever
-// this.log(`hello pipeline ${name} from ./src/index.ts ${gitlabToken}`);

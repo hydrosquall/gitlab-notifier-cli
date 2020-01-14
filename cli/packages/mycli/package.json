@@ -19,8 +19,7 @@
     "jest": "^24.9.0",
     "jest-diff": "^24.9.0",
     "ora": "^4.0.3",
-    "tslib": "^1",
-    "wait-until": "^0.0.2"
+    "tslib": "^1"
   },
   "devDependencies": {
     "@oclif/dev-cli": "^1.22.2",
