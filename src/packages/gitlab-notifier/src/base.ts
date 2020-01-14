@@ -1,18 +1,20 @@
 import { Command } from "@oclif/command";
 const { cosmiconfig } = require("cosmiconfig");
-const explorer = cosmiconfig("mycli");
+const explorer = cosmiconfig("gitlab-pipeline");
 var debug = require("debug")("mycli:base");
 
 type ConfigType = {
   name?: string;
-  gitlabToken?: string;
+  // gitlabToken?: string;
 };
 
 export default abstract class Base extends Command {
   static config: null | ConfigType;
   async init() {
-    const { config, filepath } = await explorer.search();
-    debug("parsing config", { config, filepath });
+    const config = await explorer.search();
+    // { config, filepath } // if not null, check for configuration
+
+    // debug("parsing config", { config, filepath });
     this.config = config;
   }
 }
