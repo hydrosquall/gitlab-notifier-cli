@@ -11,48 +11,18 @@ import * as notifier from "node-notifier";
 
 import Base from "../base";
 import { Pipeline } from '../lib/gitlab-response-types';
+import { retry } from '../lib/retry';
 
-
-const { prompt } = require("enquirer");
+// const { prompt } = require("enquirer");
 
 const RETRY_INTERVAL = 6000; // in milliseconds
 const RETRY_COUNT = 50;
-
-// modify with condition test
-// https://gitlab.com/snippets/1775781
-async function retry<T>(
-  fn: () => Promise<T>,
-  predicate: (arg: T) => boolean = (result: T) => (result as any) === true,
-  retriesLeft: number = RETRY_COUNT,
-  interval: number = RETRY_INTERVAL,
-  exponential: boolean = false
-): Promise<T> {
-  try {
-    const val = await fn();
-    if (!predicate(val)) {
-      throw new Error("this is hacky but will force a retry");
-    }
-
-    return val;
-  } catch (error) {
-    if (retriesLeft) {
-      await new Promise(r => setTimeout(r, interval));
-      return retry(
-        fn,
-        predicate,
-        retriesLeft - 1,
-        exponential ? interval * 2 : interval,
-        exponential
-      );
-    } else throw new Error(`Max retries reached for function ${fn.name}`);
-  }
-}
-
 
 const isPipelineDone = (response: Pipeline) => {
   return response.status === "success";
 };
 
+// Helper to deal with string-number conversion impedance
 const apiVersionFromString = (apiVersion: string): 4 | 3 => {
   switch (apiVersion) {
     case "4":
@@ -66,7 +36,7 @@ const apiVersionFromString = (apiVersion: string): 4 | 3 => {
 
 export class CheckGitlabPipeline extends Base {
   static description =
-    "Waits until a gitlab pipeline completes, then notifies you";
+    "Notifies when a gitlab pipeline successfully completes";
 
   static flags = {
     // add --version flag to show CLI version
@@ -136,7 +106,7 @@ export class CheckGitlabPipeline extends Base {
       });
     };
 
-    this.log("Hi there! I'll let you know when this gitlab work is done");
+    this.log("Hi there! Relax, I'll let you know when the pipeline is done");
     cli.action.start(
       `Checking pipeline ${chalk.cyan(
         `${pipelineId}`
@@ -145,7 +115,7 @@ export class CheckGitlabPipeline extends Base {
     );
 
     // https://github.com/sw-yx/egghead-cli-workshop/blob/master/guide/12-polish-CLI.md
-    await retry(checkApiStatusPromise, isPipelineDone)
+    await retry(checkApiStatusPromise, isPipelineDone, RETRY_COUNT, RETRY_INTERVAL)
       .then((response: Pipeline) => {
         cli.action.stop(chalk.green("Succeeded! Visit URL for more details")); // shows 'starting a process... done'
         notifier.notify({
