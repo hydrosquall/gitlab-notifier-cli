@@ -5,6 +5,8 @@ const path = require("path");
 const project = path.join(__dirname, "../tsconfig.json");
 const dev = fs.existsSync(project);
 
+const DEFAULT_COMMAND = 'pipeline';
+
 if (dev) {
   require("ts-node").register({ project });
 }

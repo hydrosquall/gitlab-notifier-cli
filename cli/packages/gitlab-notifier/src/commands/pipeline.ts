@@ -123,7 +123,7 @@ export class CheckGitlabPipeline extends Base {
           message: "Click to open the pipeline page in a web browser",
           closeLabel: "Dismiss",
           open: response.web_url,
-          actions: "run"
+          // actions: "run"
         });
       })
       // TODO: could using a state machine help us to see whether everything is still working, or if it actually failed.
@@ -145,7 +145,9 @@ export class CheckGitlabPipeline extends Base {
           },
           (err, response) => {
             api.retry(projectId, +pipelineId).then(response => {
-              this.log("Retry attempt successful");
+              this.log("Succeeded at launching a retry successful");
+            }).catch(( ) => {
+              this.log("Launching a retry may have failed.");
             });
           }
         );
