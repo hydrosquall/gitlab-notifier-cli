@@ -5,7 +5,9 @@ var debug = require("debug")("mycli:base");
 
 type ConfigType = {
   name?: string;
+  gitlabToken?: string;
 };
+
 export default abstract class Base extends Command {
   static config: null | ConfigType;
   async init() {

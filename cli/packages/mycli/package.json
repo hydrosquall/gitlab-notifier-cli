@@ -10,6 +10,7 @@
     "@oclif/command": "^1",
     "@oclif/config": "^1",
     "@oclif/plugin-help": "^2",
+    "cli-ux": "^5.4.1",
     "cosmiconfig": "^6.0.0",
     "debug": "^4.1.1",
     "enquirer": "^2.3.2",
@@ -17,7 +18,9 @@
     "globby": "^10.0.1",
     "jest": "^24.9.0",
     "jest-diff": "^24.9.0",
-    "tslib": "^1"
+    "ora": "^4.0.3",
+    "tslib": "^1",
+    "wait-until": "^0.0.2"
   },
   "devDependencies": {
     "@oclif/dev-cli": "^1.22.2",
