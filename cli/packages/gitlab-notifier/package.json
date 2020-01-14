@@ -1,11 +1,11 @@
 {
-  "name": "mycli",
+  "name": "gitlab-notifier",
   "version": "0.0.0",
-  "author": "swyx @sw-yx",
+  "author": "Cameron Yick @hydrosquall",
   "bin": {
-    "mycli": "./bin/run"
+    "gitlab-notifier": "./bin/run"
   },
-  "bugs": "https://github.com/sw-yx/mycli/issues",
+  "bugs": "",
   "dependencies": {
     "@oclif/command": "^1",
     "@oclif/config": "^1",
@@ -39,17 +39,17 @@
     "/bin",
     "/lib"
   ],
-  "homepage": "https://github.com/sw-yx/mycli",
+  "homepage": "https://github.com/hydrosquall/gitlab-notifier-cli",
   "keywords": [
     "oclif"
   ],
   "license": "MIT",
   "main": "lib/index.js",
   "oclif": {
-    "bin": "mycli",
+    "bin": "gitlab-notifier",
     "commands": "./lib/commands"
   },
-  "repository": "sw-yx/mycli",
+  "repository": "hydrosquall/gitlab-notifier-cli",
   "scripts": {
     "prepack": "rm -rf lib && tsc -b",
     "test": "echo NO TESTS"
