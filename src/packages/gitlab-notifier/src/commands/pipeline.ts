@@ -14,10 +14,6 @@ import { Pipeline } from '../lib/gitlab-response-types';
 import { retry } from '../lib/retry';
 
 // const { prompt } = require("enquirer");
-
-const RETRY_INTERVAL = 6000; // in milliseconds
-const RETRY_COUNT = 50;
-
 const isPipelineDone = (response: Pipeline) => {
   return response.status === "success";
 };
@@ -65,20 +61,25 @@ export class CheckGitlabPipeline extends Base {
       default: "4",
       options: ["3", "4"]
     }),
-    url: flags.string({
-      char: "u",
-      // required: true, // TODO: write this
-      default: "https://gitlab.ddbuild.io/DataDog/web-ui/pipelines/1796026"
-    })
+    retryInterval: flags.integer({
+      char: "i",
+      description: "duration to wait in between retries, in ms",
+      default: 6000
+    }),
+    retryCount: flags.integer({
+      char: "c",
+      description: "number of times to retry before giving up",
+      default: 50
+    }),
   };
 
-  static args = [{ name: "url" }];
+  static args = [{ name: "url", default: "https://gitlab.ddbuild.io/DataDog/web-ui/pipelines/1796026" }];
 
   static strict = false;
   async run() {
     const { flags, args } = this.parse(CheckGitlabPipeline);
 
-    const { token, apiVersion } = flags;
+    const { token, apiVersion, retryCount, retryInterval } = flags;
     const { url } = args;
 
     // parse URL into host, projectId, pipelineId
@@ -115,7 +116,7 @@ export class CheckGitlabPipeline extends Base {
     );
 
     // https://github.com/sw-yx/egghead-cli-workshop/blob/master/guide/12-polish-CLI.md
-    await retry(checkApiStatusPromise, isPipelineDone, RETRY_COUNT, RETRY_INTERVAL)
+    await retry(checkApiStatusPromise, isPipelineDone, retryCount, retryInterval)
       .then((response: Pipeline) => {
         cli.action.stop(chalk.green("Succeeded! Visit URL for more details")); // shows 'starting a process... done'
         notifier.notify({
@@ -130,7 +131,7 @@ export class CheckGitlabPipeline extends Base {
       .catch(() => {
         cli.action.stop(
           chalk.red(
-            `Retired after ${(RETRY_COUNT * RETRY_INTERVAL) /
+            `Retired after ${(retryCount * retryInterval) /
             1000} seconds. Try again later`
           )
         );
