@@ -1,11 +1,11 @@
 
-// var debug = require("debug")("mycli:check-pipeline");
 import { flags } from "@oclif/command";
 import { cli } from "cli-ux";
 import { Pipelines } from "gitlab";
 import chalk from "chalk";
 
 import { parse } from "url";
+import * as humanizeDuration from 'humanize-duration';
 
 import * as notifier from "node-notifier";
 
@@ -15,7 +15,7 @@ import { retry } from '../lib/retry';
 
 // const { prompt } = require("enquirer");
 const isPipelineDone = (response: Pipeline) => {
-  return response.status === "success";
+  return response.status === "success" || response.status === "failed";
 };
 
 // Helper to deal with string-number conversion impedance
@@ -64,13 +64,18 @@ export class CheckGitlabPipeline extends Base {
     retryInterval: flags.integer({
       char: "i",
       description: "duration to wait in between retries, in ms",
-      default: 6000
+      default: 10000 // 10 seconds seems reasonable
     }),
     retryCount: flags.integer({
       char: "c",
-      description: "number of times to retry before giving up",
-      default: 50
+      description: "number of times to retry before halting checks",
+      default: 6 * 25, // try for 25 minutes by default
     }),
+    language: flags.string({
+      char: "l",
+      description: "Preferred locale for describing durations, check humanize-durations for full list",
+      default: 'en'
+    })
   };
 
   static args = [{ name: "url", default: "https://gitlab.ddbuild.io/DataDog/web-ui/pipelines/1796026" }];
@@ -79,7 +84,7 @@ export class CheckGitlabPipeline extends Base {
   async run() {
     const { flags, args } = this.parse(CheckGitlabPipeline);
 
-    const { token, apiVersion, retryCount, retryInterval } = flags;
+    const { token, apiVersion, retryCount, retryInterval, language } = flags;
     const { url } = args;
 
     // parse URL into host, projectId, pipelineId
@@ -102,56 +107,91 @@ export class CheckGitlabPipeline extends Base {
     const api = new Pipelines(gitlabApiOptions);
 
     const checkApiStatusPromise = () => {
-      return api.show(projectId, +pipelineId).then((response: any) => {
+      cli.action.start('')
+
+      return api.show(projectId, +pipelineId).then((response) => {
+
+        // Not great to have a side-effect in here, but it's OK for now. In future, compose the retry function
+        // with both a checker and a logger.
+        const durationInSeconds = (response as Pipeline).duration || 0;
+        cli.action.start( `Thinking intently`, `Last run completed in ${humanizeDuration(durationInSeconds * 1000)}`);
+
         return response as Pipeline;
       });
     };
 
-    this.log("Hi there! Relax, I'll let you know when the pipeline is done");
+    const humanizer = humanizeDuration.humanizer({
+      language
+    })
+
+    this.log("Hi there! Relax, I'll let you know when your pipeline is done");
+    this.log(`Checking pipeline ${chalk.cyan(`${pipelineId}`)} in project ${projectId}`);
     cli.action.start(
-      `Checking pipeline ${chalk.cyan(
-        `${pipelineId}`
-      )} in project ${projectId}`,
+      'Watching',
       `Thinking intently...`
     );
 
     // https://github.com/sw-yx/egghead-cli-workshop/blob/master/guide/12-polish-CLI.md
     await retry(checkApiStatusPromise, isPipelineDone, retryCount, retryInterval)
       .then((response: Pipeline) => {
-        cli.action.stop(chalk.green("Succeeded! Visit URL for more details")); // shows 'starting a process... done'
-        notifier.notify({
-          title: `Success: ${pipelineId}`, // TODO: include pipeline duration
-          message: "Click to open the pipeline page in a web browser",
-          closeLabel: "Dismiss",
-          open: response.web_url,
-          // actions: "run"
-        });
-      })
-      // TODO: could using a state machine help us to see whether everything is still working, or if it actually failed.
-      .catch(() => {
+        const formattedStatus = response.status.toUpperCase();
+        const colorFunction = response.status === 'success' ? chalk.green: chalk.red;
+
+        const durationInSeconds = response.duration || 0;
+        const humanizedDuration = humanizer(durationInSeconds * 1000);
+
+        cli.action.stop(colorFunction(`\n${formattedStatus} after ${humanizedDuration}. Visit ${url} for detail.`));
+
+        if (response.status === 'failed') {
+          notifier.notify(
+            {
+              title: `${pipelineId} failed`,
+              subtitle: `Duration: ${ humanizedDuration }`,
+              open: url, // from user
+              message: "Click Retry to retry failed jobs from the previous run",
+              closeLabel: "Dismiss",
+              wait: true,
+              timeout: 15000, // I believe this in milliseconds.
+              actions: "Retry"
+            },
+            (err: any, response: string, notificationMetadata?: notifier.NotificationMetadata) => {
+              this.log(`response ${response}`);
+              if (response === 'closed') {
+                this.exit();
+              }
+
+              if (response === 'activate') {
+                if (notificationMetadata && notificationMetadata.activationValue === 'Retry') {
+                  api.retry(projectId, +pipelineId).then(response => {
+                    console.log(response);
+                    this.log("Successfully triggered retries on this pipeline");
+                  }).catch(() => {
+                    this.log("Launching a retry failed somehow, check gitlab for details");
+                  })
+                }
+              }
+            }
+          );
+        } else if (response.status === 'success') {
+          notifier.notify({
+            title: `${pipelineId} succeeded 🥳`, // TODO: include pipeline duration
+            subtitle: `Duration: ${humanizedDuration}`,
+            message: "Click to open the pipeline page",
+            closeLabel: "Dismiss",
+            open: response.web_url,
+          });
+          this.exit();
+        }
+
+      }).catch(() => {
+        // TODO: could using a state machine help us to see whether everything is still working, or if it actually failed.
         cli.action.stop(
           chalk.red(
-            `Retired after ${(retryCount * retryInterval) /
-            1000} seconds. Try again later`
+            `Stopped checking after after ${humanizer((retryCount * retryInterval))}. I can try again if you'd like.`
           )
         );
-        notifier.notify(
-          {
-            title: `Failed: ${pipelineId}`,
-            open: url, // from user
-            message: "Click Retry to retry all jobs (or just failed jobs)?",
-            closeLabel: "Dismiss",
-            wait: true,
-            actions: "Retry"
-          },
-          (err, response) => {
-            api.retry(projectId, +pipelineId).then(response => {
-              this.log("Succeeded at launching a retry successful");
-            }).catch(( ) => {
-              this.log("Launching a retry may have failed.");
-            });
-          }
-        );
+        this.exit();
       });
+
   }
 }
